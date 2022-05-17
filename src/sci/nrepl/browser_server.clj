@@ -1,4 +1,4 @@
-(ns sci.nrepl.browser-proxy
+(ns sci.nrepl.browser-server
   (:require
    [bencode.core :as bencode]
    [clojure.edn :as edn]
@@ -127,6 +127,7 @@
       (recur))))
 
 (defn listen [^ServerSocket listener {:as opts}]
+  (println (str "nREPL server started on port " (:port opts) "..."))
   (let [client-socket (.accept listener)
         in (.getInputStream client-socket)
         in (PushbackInputStream. in)
@@ -138,12 +139,12 @@
 
 (defonce !socket (atom nil))
 
-(defn start-browser-nrepl! [{:keys [port]
-                             :or {port 1340}}]
-  (let [inet-address (java.net.InetAddress/getByName "localhost")
+(defn start-nrepl-server! [{:keys [port] :as opts}]
+  (let [port (or port 1339)
+        inet-address (java.net.InetAddress/getByName "localhost")
         socket (new ServerSocket port 0 inet-address)
         _ (reset! !socket socket)]
-    (future (listen socket nil))))
+    (future (listen socket opts))))
 
 (defn stop-browser-nrepl! []
   (.close ^ServerSocket @!socket))
@@ -155,6 +156,7 @@
                        :on-close (fn [_ch _reason] (prn :close))
                        :on-receive
                        (fn [_ch message]
+                         (prn :msg message)
                          (response-handler message))}))
 
 (defn app [{:as req}]
@@ -171,12 +173,34 @@
     (println (str "Webserver running on " port ", stopped."))
     (reset! !server nil)))
 
-(defn serve! [{:keys [port] :or {port 1340}}]
-  (halt!)
-  (try
-    (reset! !server {:port port :stop-fn (httpkit/run-server #'app {:port port})})
-    (println (str "Browser REPL proxy started on " port "..."))
-    (catch Exception #_java.net.BindException e ;; TODO, add BindException to bb, done for 0.8.3
-      (println "Port " port " not available, server not started!")
-      (println (.getMessage e)))))
+(defn start-websocket-server! [{:keys [port]}]
+  (let [port (or port 1340)]
+    (halt!)
+    (try
+      (reset! !server {:port port :stop-fn (httpkit/run-server #'app {:port port})})
+      (println (str "Websocket server started on " port "..."))
+      (catch Exception #_java.net.BindException e ;; TODO, add BindException to bb, done for 0.8.3
+             (println "Port " port " not available, server not started!")
+             (println (.getMessage e))))))
 
+(defn start! [{:keys [nrepl-port websocket-port wait]
+               :or {wait true
+                    nrepl-port 1339
+                    websocket-port 1340}}]
+  (start-nrepl-server! {:port nrepl-port})
+  (start-websocket-server! {:port websocket-port})
+  (when wait
+    @(promise)))
+
+(defmacro export [& var-names]
+  (let [var-names (set var-names)]
+    (doseq [[k v] (ns-publics *ns*)]
+      (when-not (contains? var-names k)
+        (alter-meta! v assoc :private true)))))
+
+(export
+ start-nrepl-server!
+ stop-browser-nrepl!
+ start-websocket-server!
+ start!
+ )
