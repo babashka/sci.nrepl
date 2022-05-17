@@ -183,14 +183,12 @@
              (println "Port " port " not available, server not started!")
              (println (.getMessage e))))))
 
-(defn start! [{:keys [nrepl-port websocket-port wait]
-               :or {wait true
-                    nrepl-port 1339
-                    websocket-port 1340}}]
+(defn start!
+  [{:keys [nrepl-port websocket-port]
+    :or {nrepl-port 1339
+         websocket-port 1340}}]
   (start-nrepl-server! {:port nrepl-port})
-  (start-websocket-server! {:port websocket-port})
-  (when wait
-    @(promise)))
+  (start-websocket-server! {:port websocket-port}))
 
 (defmacro export [& var-names]
   (let [var-names (set var-names)]
