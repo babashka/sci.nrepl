@@ -88,22 +88,21 @@
                                 :prefix prefix
                                 :ns ns})))))
 
+(defn generically-handle-on-server [{:keys [id op session msg]}]
+  (when-let
+      [chan @nrepl-channel]
+      (httpkit/send!
+       chan
+       (str
+        (merge
+         msg
+         {:op op
+          :id id
+          :session session})))))
+
 (defn handle-describe [ctx]
-  (send-response (assoc ctx :response
-                        {"status" #{"done"}
-                         "ops" (zipmap #{"clone" "close" "eval"
-                                         "load-file"
-                                         "complete"
-                                         "describe"
-                                         ;; "ls-sessions"
-                                         ;; "eldoc"
-                                         ;; "info"
-                                         ;; "lookup"
-                                         }
-                                       (repeat {}))
-                         "versions" {"clerk-browser-nrepl" {"major" "0"
-                                                            "minor" "0"
-                                                            "incremental" "1"}}})))
+  (vreset! !last-ctx ctx)
+  (generically-handle-on-server (assoc ctx :op :describe)))
 
 (defn session-loop [in out {:keys [opts]}]
   (loop []
@@ -116,14 +115,15 @@
       (let [ctx {:out out :msg msg}
             id (get msg :id)
             session (get msg :session)
-            ctx (assoc ctx :id id :session session)]
-        (case (keyword (get msg :op))
+            ctx (assoc ctx :id id :session session)
+            op (keyword (get msg :op))]
+        (case op
           :clone (handle-clone ctx)
           :eval (handle-eval ctx)
           :describe (handle-describe ctx)
           :load-file (handle-load-file ctx)
           :complete (handle-complete ctx)
-          (send-response (assoc ctx :response {"status" #{"error" "unknown-op" "done"}}))))
+          (generically-handle-on-server (assoc ctx :op op))))
       (recur))))
 
 (defn listen [^ServerSocket listener {:as opts}]
