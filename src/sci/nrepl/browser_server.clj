@@ -52,7 +52,7 @@
         session (:session msg)]
     (send-response {:id id
                     :session session
-                    :response (dissoc (edn/read-string message)
+                    :response (dissoc msg
                                       :id :session)})))
 
 (defn handle-eval [{:keys [msg session id] :as ctx}]
@@ -123,7 +123,7 @@
           :describe (handle-describe ctx)
           :load-file (handle-load-file ctx)
           :complete (handle-complete ctx)
-          (generically-handle-on-server (assoc ctx :op op))))
+          (send-response (assoc ctx :response {"status" #{"error" "unknown-op" "done"}}))))
       (recur))))
 
 (defn listen [^ServerSocket listener {:as opts}]
