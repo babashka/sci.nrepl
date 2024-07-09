@@ -21,12 +21,13 @@
 (defn nrepl-websocket []
   (.-ws_nrepl js/window))
 
-(defn nrepl-reply [{:keys [id session]} {:keys [ns] :as payload}]
-  (.send (nrepl-websocket)
-         (str
-          (let [ns (or ns (str @!last-ns))]
-            (-> (assoc payload :id id :session session :ns ns)
-                (dissoc :ctx))))))
+(defn nrepl-reply [{:keys [id session send-fn]} {:keys [ns] :as payload}]
+  (let [ns (or ns (str @!last-ns))
+        reply (-> (assoc payload :id id :session session :ns ns)
+                  (dissoc :ctx))]
+    (if send-fn
+      (send-fn reply)
+      (.send (nrepl-websocket) (str reply)))))
 
 (defn handle-nrepl-eval [{:keys [code] :as msg}]
   (let [[kind val] (try [::success (eval-string code)]
@@ -79,4 +80,4 @@
 (defn handle-nrepl-message [msg]
   (if-let [handler (ops (:op msg))]
     (handler msg)
-    (nrepl-reply msg (merge msg {:status ["error" "done"] :err "unkown-op"}))))
+    (nrepl-reply msg (merge msg {:status ["error" "done"] :err "unknown-op"}))))
