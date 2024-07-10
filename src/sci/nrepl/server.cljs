@@ -67,6 +67,9 @@
           (repeat {}))
     :status ["done"]}))
 
+(defn handle-close [request]
+  (nrepl-reply request {:status ["done"]}))
+
 (def ops
   "Operations supported by the nrepl server."
   {:eval handle-nrepl-eval
@@ -75,7 +78,8 @@
    :lookup handle-nrepl-info
    :describe handle-describe
    :complete (fn [msg] (let [completions (completions (assoc msg :ctx (store/get-ctx)))]
-                         (nrepl-reply msg completions)))})
+                         (nrepl-reply msg completions)))
+   :close handle-close})
 
 (defn handle-nrepl-message [msg]
   (if-let [handler (ops (:op msg))]
