@@ -44,14 +44,15 @@
           completions)))))
 
 (defn- match [_alias->ns ns->alias query [sym-ns sym-name qualifier]]
-  (let [pat (re-pattern query)]
-    (or (when (and (= :unqualified qualifier) (re-find pat sym-name))
-          [sym-ns sym-name])
-        (when sym-ns
-          (or (when (re-find pat (str (get ns->alias (symbol sym-ns)) "/" sym-name))
-                [sym-ns (str (get ns->alias (symbol sym-ns)) "/" sym-name)])
-              (when (re-find pat (str sym-ns "/" sym-name))
-                [sym-ns (str sym-ns "/" sym-name)]))))))
+  (or (when (and (= :unqualified qualifier) (str/includes? sym-name query))
+        [sym-ns sym-name])
+      (when sym-ns
+        (or (let [s (str (get ns->alias (symbol sym-ns)) "/" sym-name)]
+              (when (str/includes? s query)
+                [sym-ns s]))
+            (let [s (str sym-ns "/" sym-name)]
+              (when (str/includes? s query)
+                [sym-ns s]))))))
 
 (defn completions [{:keys [ctx]
                     ns-str :ns
