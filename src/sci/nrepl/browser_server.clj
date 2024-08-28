@@ -179,16 +179,3 @@
          websocket-port 1340}}]
   (start-nrepl-server! {:port nrepl-port})
   (start-websocket-server! {:port websocket-port}))
-
-(defmacro export [& var-names]
-  (let [var-names (set var-names)]
-    (doseq [[k v] (ns-publics *ns*)]
-      (when-not (contains? var-names k)
-        (alter-meta! v assoc :private true)))))
-
-(export
- start-nrepl-server!
- stop-browser-nrepl!
- start-websocket-server!
- start!
- )
