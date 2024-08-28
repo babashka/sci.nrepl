@@ -137,8 +137,10 @@
         _ (reset! !socket socket)]
     (future (listen socket opts))))
 
-(defn stop-browser-nrepl! []
-  (.close ^ServerSocket @!socket))
+(defn stop-nrepl-server! []
+  (when-let [socket @!socket]
+    (.close ^ServerSocket socket)
+    (reset! !socket nil)))
 
 (defn create-channel [req]
   (httpkit/as-channel req
