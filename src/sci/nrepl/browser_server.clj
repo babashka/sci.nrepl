@@ -29,7 +29,8 @@
          #_(def e e)
          (throw e))))
 
-(defonce !last-ctx (volatile! nil))
+(defonce ^:private !last-ctx
+  (volatile! nil))
 
 (defn send-response [{:keys [out id session response]
                       :or {out (:out @!last-ctx)}}]
@@ -158,7 +159,8 @@
       "/_nrepl"
       (create-channel req))))
 
-(defonce !server (atom nil))
+(defonce ^:private !server
+  (atom nil))
 
 (defn halt! []
   (when-let [{:keys [port stop-fn]} @!server]
