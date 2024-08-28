@@ -47,15 +47,17 @@
 (defonce nrepl-channel (atom nil))
 
 (defn response-handler [message]
-  (let [msg (edn/read-string message)
-        id (:id msg)
-        session (:session msg)]
+  (let [{:as msg :keys [id session]} (edn/read-string message)]
     (send-response {:id id
                     :session session
-                    :response (dissoc (edn/read-string message)
-                                      :id :session)})))
+                    :response (dissoc msg :id :session)})))
 
-(defn handle-eval [{:keys [msg session id] :as ctx}]
+(defn websocket-reply! [msg]
+  (when-let [chan @nrepl-channel]
+    (prn :websocket-reply! msg)
+    (httpkit/send! chan (str msg))))
+
+(defn handle-eval [{:as ctx :keys [msg session id reply!] :or {reply! websocket-reply!}}]
   (vreset! !last-ctx ctx)
   (let [code (get msg :code)]
     (if (or (str/includes? code "clojure.main/repl-requires")
@@ -63,42 +65,30 @@
       (do
         (send-response (assoc ctx :response {"value" "nil"}))
         (send-response (assoc ctx :response {"status" ["done"]})))
-      (when-let [chan @nrepl-channel]
-        (httpkit/send! chan (str {:op :eval
-                                  :code code
-                                  :id id
-                                  :session session}))))))
+      (reply! {:op :eval
+               :code code
+               :id id
+               :session session}))))
 
 (defn handle-load-file [ctx]
   (let [msg (get ctx :msg)
         code (get msg :file)
-        msg (assoc msg :code code)
-        ctx (assoc ctx :msg msg)]
-    (handle-eval ctx)))
+        msg (assoc msg :code code)]
+    (handle-eval (assoc ctx :msg msg))))
 
-(defn handle-complete [{:keys [id session msg]}]
-  (when-let [chan @nrepl-channel]
-    (let [symbol (get msg :symbol)
-          prefix (get msg :prefix)
-          ns (get msg :ns)]
-      (httpkit/send! chan (str {:op :complete
-                                :id id
-                                :session session
-                                :symbol symbol
-                                :prefix prefix
-                                :ns ns})))))
+(defn handle-complete [{:keys [id session msg reply!] :or {reply! websocket-reply!}}]
+  (reply! {:op :complete
+           :id id
+           :session session
+           :symbol (get msg :symbol)
+           :prefix (get msg :prefix)
+           :ns (get msg :ns)}))
 
-(defn generically-handle-on-server [{:keys [id op session msg]}]
-  (when-let
-      [chan @nrepl-channel]
-      (httpkit/send!
-       chan
-       (str
-        (merge
-         msg
-         {:op op
-          :id id
-          :session session})))))
+(defn generically-handle-on-server [{:keys [id op session msg reply!] :or {reply! websocket-reply!}}]
+  (reply! (merge msg
+                 {:op op
+                  :id id
+                  :session session})))
 
 (defn handle-describe [ctx]
   (vreset! !last-ctx ctx)
