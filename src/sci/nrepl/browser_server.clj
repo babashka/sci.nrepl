@@ -52,12 +52,11 @@
                     :session session
                     :response (dissoc msg :id :session)})))
 
-(defn websocket-reply! [msg]
+(defn websocket-send! [msg]
   (when-let [chan @nrepl-channel]
-    (prn :websocket-reply! msg)
     (httpkit/send! chan (str msg))))
 
-(defn handle-eval [{:as ctx :keys [msg session id reply!] :or {reply! websocket-reply!}}]
+(defn handle-eval [{:as ctx :keys [msg session id send!] :or {send! websocket-send!}}]
   (vreset! !last-ctx ctx)
   (let [code (get msg :code)]
     (if (or (str/includes? code "clojure.main/repl-requires")
@@ -65,10 +64,10 @@
       (do
         (send-response (assoc ctx :response {"value" "nil"}))
         (send-response (assoc ctx :response {"status" ["done"]})))
-      (reply! {:op :eval
-               :code code
-               :id id
-               :session session}))))
+      (send! {:op :eval
+              :code code
+              :id id
+              :session session}))))
 
 (defn handle-load-file [ctx]
   (let [msg (get ctx :msg)
@@ -76,19 +75,19 @@
         msg (assoc msg :code code)]
     (handle-eval (assoc ctx :msg msg))))
 
-(defn handle-complete [{:keys [id session msg reply!] :or {reply! websocket-reply!}}]
-  (reply! {:op :complete
-           :id id
-           :session session
-           :symbol (get msg :symbol)
-           :prefix (get msg :prefix)
-           :ns (get msg :ns)}))
+(defn handle-complete [{:keys [id session msg send!] :or {send! websocket-send!}}]
+  (send! {:op :complete
+          :id id
+          :session session
+          :symbol (get msg :symbol)
+          :prefix (get msg :prefix)
+          :ns (get msg :ns)}))
 
-(defn generically-handle-on-server [{:keys [id op session msg reply!] :or {reply! websocket-reply!}}]
-  (reply! (merge msg
-                 {:op op
-                  :id id
-                  :session session})))
+(defn generically-handle-on-server [{:keys [id op session msg send!] :or {send! websocket-send!}}]
+  (send! (merge msg
+                {:op op
+                 :id id
+                 :session session})))
 
 (defn handle-describe [ctx]
   (vreset! !last-ctx ctx)
@@ -102,7 +101,9 @@
                      (catch EOFException _
                        (when-not (:quiet opts)
                          (println "Client closed connection."))))]
-      (let [ctx {:out out :msg msg}
+      (let [ctx (cond-> {:out out :msg msg}
+                  (:send! opts)
+                  (assoc :send! (:send! opts)))
             id (get msg :id)
             session (get msg :session)
             ctx (assoc ctx :id id :session session)
