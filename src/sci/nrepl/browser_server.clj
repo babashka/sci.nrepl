@@ -10,17 +10,17 @@
 
 (set! *warn-on-reflection* true)
 
-(defn update-when [m k f]
+(defn- update-when [m k f]
   (if-let [v (get m k)]
     (assoc m k (f v))
     m))
 
-(defn coerce-bencode [x]
+(defn- coerce-bencode [x]
   (if (bytes? x)
     (String. ^bytes x)
     x))
 
-(defn read-bencode [in]
+(defn- read-bencode [in]
   (try (let [msg (bencode/read-bencode in)
              msg (zipmap (map keyword (keys msg))
                          (map coerce-bencode (vals msg)))]
@@ -29,7 +29,8 @@
          #_(def e e)
          (throw e))))
 
-(def !last-ctx (volatile! nil))
+(defonce ^:private !last-ctx
+  (volatile! nil))
 
 (defn send-response [{:keys [out id session response]
                       :or {out (:out @!last-ctx)}}]
@@ -39,23 +40,24 @@
     (bencode/write-bencode out response)
     (.flush ^java.io.OutputStream out)))
 
-(defn handle-clone [ctx]
+(defn- handle-clone [ctx]
   (let [id (str (java.util.UUID/randomUUID))]
     (send-response (assoc ctx
                           :response {"new-session" id "status" ["done"]}))))
 
 (defonce nrepl-channel (atom nil))
 
-(defn response-handler [message]
-  (let [msg (edn/read-string message)
-        id (:id msg)
-        session (:session msg)]
+(defn- response-handler [message]
+  (let [{:as msg :keys [id session]} (edn/read-string message)]
     (send-response {:id id
                     :session session
-                    :response (dissoc (edn/read-string message)
-                                      :id :session)})))
+                    :response (dissoc msg :id :session)})))
 
-(defn handle-eval [{:keys [msg session id] :as ctx}]
+(defn- websocket-send! [msg]
+  (when-let [chan @nrepl-channel]
+    (httpkit/send! chan (str msg))))
+
+(defn- handle-eval [{:as ctx :keys [msg session id send-fn] :or {send-fn websocket-send!}}]
   (vreset! !last-ctx ctx)
   (let [code (get msg :code)]
     (if (or (str/includes? code "clojure.main/repl-requires")
@@ -63,48 +65,36 @@
       (do
         (send-response (assoc ctx :response {"value" "nil"}))
         (send-response (assoc ctx :response {"status" ["done"]})))
-      (when-let [chan @nrepl-channel]
-        (httpkit/send! chan (str {:op :eval
-                                  :code code
-                                  :id id
-                                  :session session}))))))
+      (send-fn {:op :eval
+                :code code
+                :id id
+                :session session}))))
 
-(defn handle-load-file [ctx]
+(defn- handle-load-file [ctx]
   (let [msg (get ctx :msg)
         code (get msg :file)
-        msg (assoc msg :code code)
-        ctx (assoc ctx :msg msg)]
-    (handle-eval ctx)))
+        msg (assoc msg :code code)]
+    (handle-eval (assoc ctx :msg msg))))
 
-(defn handle-complete [{:keys [id session msg]}]
-  (when-let [chan @nrepl-channel]
-    (let [symbol (get msg :symbol)
-          prefix (get msg :prefix)
-          ns (get msg :ns)]
-      (httpkit/send! chan (str {:op :complete
-                                :id id
-                                :session session
-                                :symbol symbol
-                                :prefix prefix
-                                :ns ns})))))
+(defn- handle-complete [{:keys [id session msg send-fn] :or {send-fn websocket-send!}}]
+  (send-fn {:op :complete
+            :id id
+            :session session
+            :symbol (get msg :symbol)
+            :prefix (get msg :prefix)
+            :ns (get msg :ns)}))
 
-(defn generically-handle-on-server [{:keys [id op session msg]}]
-  (when-let
-      [chan @nrepl-channel]
-      (httpkit/send!
-       chan
-       (str
-        (merge
-         msg
-         {:op op
-          :id id
-          :session session})))))
+(defn- generically-handle-on-server [{:keys [id op session msg send-fn] :or {send-fn websocket-send!}}]
+  (send-fn (merge msg
+                  {:op op
+                   :id id
+                   :session session})))
 
-(defn handle-describe [ctx]
+(defn- handle-describe [ctx]
   (vreset! !last-ctx ctx)
   (generically-handle-on-server (assoc ctx :op :describe)))
 
-(defn session-loop [in out {:keys [opts]}]
+(defn- session-loop [in out {:keys [opts]}]
   (loop []
     (when-let [msg (try
                      (let [msg (read-bencode in)]
@@ -112,7 +102,9 @@
                      (catch EOFException _
                        (when-not (:quiet opts)
                          (println "Client closed connection."))))]
-      (let [ctx {:out out :msg msg}
+      (let [ctx (cond-> {:out out :msg msg}
+                  (:send-fn opts)
+                  (assoc :send-fn (:send-fn opts)))
             id (get msg :id)
             session (get msg :session)
             ctx (assoc ctx :id id :session session)
@@ -126,7 +118,7 @@
           (generically-handle-on-server (assoc ctx :op op))))
       (recur))))
 
-(defn listen [^ServerSocket listener {:as opts}]
+(defn- listen [^ServerSocket listener {:as opts}]
   (println (str "nREPL server started on port " (:port opts) "..."))
   (let [client-socket (.accept listener)
         in (.getInputStream client-socket)
@@ -146,10 +138,12 @@
         _ (reset! !socket socket)]
     (future (listen socket opts))))
 
-(defn stop-browser-nrepl! []
-  (.close ^ServerSocket @!socket))
+(defn stop-nrepl-server! []
+  (when-let [socket @!socket]
+    (.close ^ServerSocket socket)
+    (reset! !socket nil)))
 
-(defn create-channel [req]
+(defn- create-channel [req]
   (httpkit/as-channel req
                       {:on-open (fn [ch]
                                   (reset! nrepl-channel ch))
@@ -159,13 +153,14 @@
                          (prn :msg message)
                          (response-handler message))}))
 
-(defn app [{:as req}]
+(defn- app [{:as req}]
   (when (:websocket? req)
     (case (:uri req)
       "/_nrepl"
       (create-channel req))))
 
-(def !server (atom nil))
+(defonce ^:private !server
+  (atom nil))
 
 (defn halt! []
   (when-let [{:keys [port stop-fn]} @!server]
@@ -189,16 +184,3 @@
          websocket-port 1340}}]
   (start-nrepl-server! {:port nrepl-port})
   (start-websocket-server! {:port websocket-port}))
-
-(defmacro export [& var-names]
-  (let [var-names (set var-names)]
-    (doseq [[k v] (ns-publics *ns*)]
-      (when-not (contains? var-names k)
-        (alter-meta! v assoc :private true)))))
-
-(export
- start-nrepl-server!
- stop-browser-nrepl!
- start-websocket-server!
- start!
- )
