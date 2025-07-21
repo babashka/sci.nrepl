@@ -10,11 +10,6 @@
 
 (set! *warn-on-reflection* true)
 
-(defn- update-when [m k f]
-  (if-let [v (get m k)]
-    (assoc m k (f v))
-    m))
-
 (defn- coerce-bencode [x]
   (if (bytes? x)
     (String. ^bytes x)
@@ -92,7 +87,22 @@
 
 (defn- handle-describe [ctx]
   (vreset! !last-ctx ctx)
-  (generically-handle-on-server (assoc ctx :op :describe)))
+  (let [response {"versions" {"sci-nrepl" {"major" "0"
+                                           "minor" "0"
+                                           "incremental" "1"}}
+                  "ops" (zipmap
+                         (map
+                          name
+                          [:eval
+                           :info
+                           :eldo
+                           :lookup
+                           :complete
+                           :close :clone :load-file])
+                         (repeat {}))
+                  "aux" {"cwd" (System/getProperty "user.dir")}
+                  :status ["done"]}]
+    (send-response (assoc ctx :response response))))
 
 (defn- session-loop [in out {:keys [opts]}]
   (loop []

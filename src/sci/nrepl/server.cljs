@@ -49,24 +49,6 @@
 
 (declare ops)
 
-(defn handle-describe [msg]
-  (nrepl-reply
-   msg
-   {:versions {"sci-nrepl" {"major" "0"
-                            "minor" "0"
-                            "incremental" "1"}}
-    :ops (zipmap
-          (map
-           name
-           (concat
-            (keys ops)
-            ;; sci.nrepl browser_server.clj handles:
-            #{:clone :load-file}
-            ;; we are lying about close?
-            #{"close"}))
-          (repeat {}))
-    :status ["done"]}))
-
 (defn handle-close [request]
   (nrepl-reply request {:status ["done"]}))
 
@@ -76,7 +58,6 @@
    :info handle-nrepl-info
    :eldoc handle-nrepl-info
    :lookup handle-nrepl-info
-   :describe handle-describe
    :complete (fn [msg] (let [completions (completions (assoc msg :ctx (store/get-ctx)))]
                          (nrepl-reply msg completions)))
    :close handle-close})
