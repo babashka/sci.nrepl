@@ -50,7 +50,7 @@
 (declare ops)
 
 (defn handle-close [request]
-  (nrepl-reply request {:status ["done"]}))
+  (nrepl-reply request {:status ["done" "session-closed"]}))
 
 (def ops
   "Operations supported by the nrepl server."
