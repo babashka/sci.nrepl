@@ -125,6 +125,7 @@
           :describe (handle-describe ctx)
           :load-file (handle-load-file ctx)
           :complete (handle-complete ctx)
+          :ls-sessions (send-response (assoc ctx :response {"sessions" (if session [session] []) "status" ["done"]}))
           (generically-handle-on-server (assoc ctx :op op))))
       (recur))))
 
