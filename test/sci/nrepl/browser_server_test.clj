@@ -121,6 +121,22 @@
         (is (= ::timeout (recv a)))))
     (.close ^Socket (:socket a))))
 
+(deftest classpath-op-replies-with-an-empty-classpath-test
+  (let [a (connect)]
+    (send! a {"op" "classpath" "id" "classpath-request"})
+    (let [reply (recv a)]
+      (is (= [] (get reply "classpath")))
+      (is (= ["done"] (get reply "status")))
+      (is (= "classpath-request" (get reply "id"))))
+    (is (empty? (filter #(= "classpath-request" (:id %)) @!page-inbox)))
+    (.close ^Socket (:socket a))))
+
+(deftest describe-lists-the-classpath-op-test
+  (let [a (connect)]
+    (send! a {"op" "describe" "id" "describe-request"})
+    (is (contains? (get (recv a) "ops") "classpath"))
+    (.close ^Socket (:socket a))))
+
 (deftest closed-connection-drops-pending-requests-test
   (let [a (connect)]
     (send! a {"op" "eval" "code" "1" "id" "abandoned"})
