@@ -24,16 +24,23 @@
          #_(def e e)
          (throw e))))
 
-(defonce ^:private !last-ctx
-  (volatile! nil))
+(defonce ^:private !pending
+  (atom {}))
 
-(defn send-response [{:keys [out id session response]
-                      :or {out (:out @!last-ctx)}}]
-  (let [response (cond-> response
+(defn- forget-connection! [out]
+  (swap! !pending #(into {} (remove (fn [[_ pending-out]] (identical? out pending-out))) %)))
+
+(defn send-response [{:keys [out id session response]}]
+  (let [request [session id]
+        out (or out (get @!pending request))
+        response (cond-> response
                    id (assoc :id id)
                    session (assoc :session session))]
-    (bencode/write-bencode out response)
-    (.flush ^java.io.OutputStream out)))
+    (when (some #{"done"} (:status response))
+      (swap! !pending dissoc request))
+    (when out
+      (bencode/write-bencode out response)
+      (.flush ^java.io.OutputStream out))))
 
 (defn- handle-clone [ctx]
   (let [id (str (java.util.UUID/randomUUID))]
@@ -52,18 +59,19 @@
   (when-let [chan @nrepl-channel]
     (httpkit/send! chan (str msg))))
 
-(defn- handle-eval [{:as ctx :keys [msg session id send-fn] :or {send-fn websocket-send!}}]
-  (vreset! !last-ctx ctx)
+(defn- forward! [{:keys [out id session send-fn] :or {send-fn websocket-send!}} msg]
+  (swap! !pending assoc [session id] out)
+  (send-fn (assoc msg :id id :session session)))
+
+(defn- handle-eval [{:as ctx :keys [msg]}]
   (let [code (get msg :code)]
     (if (or (str/includes? code "clojure.main/repl-requires")
             (str/includes? code "System/getProperty"))
       (do
         (send-response (assoc ctx :response {"value" "nil"}))
         (send-response (assoc ctx :response {"status" ["done"]})))
-      (send-fn {:op :eval
-                :code code
-                :id id
-                :session session}))))
+      (forward! ctx {:op :eval
+                     :code code}))))
 
 (defn- handle-load-file [ctx]
   (let [msg (get ctx :msg)
@@ -71,22 +79,16 @@
         msg (assoc msg :code code)]
     (handle-eval (assoc ctx :msg msg))))
 
-(defn- handle-complete [{:keys [id session msg send-fn] :or {send-fn websocket-send!}}]
-  (send-fn {:op :complete
-            :id id
-            :session session
-            :symbol (get msg :symbol)
-            :prefix (get msg :prefix)
-            :ns (get msg :ns)}))
+(defn- handle-complete [{:as ctx :keys [msg]}]
+  (forward! ctx {:op :complete
+                 :symbol (get msg :symbol)
+                 :prefix (get msg :prefix)
+                 :ns (get msg :ns)}))
 
-(defn- generically-handle-on-server [{:keys [id op session msg send-fn] :or {send-fn websocket-send!}}]
-  (send-fn (merge msg
-                  {:op op
-                   :id id
-                   :session session})))
+(defn- generically-handle-on-server [{:as ctx :keys [op msg]}]
+  (forward! ctx (assoc msg :op op)))
 
 (defn- handle-describe [ctx]
-  (vreset! !last-ctx ctx)
   (let [response {"versions" {"sci-nrepl" {"major" "0"
                                            "minor" "0"
                                            "incremental" "1"}}
@@ -137,7 +139,10 @@
         out (.getOutputStream client-socket)
         out (BufferedOutputStream. out)]
     (future
-      (session-loop in out {:opts opts}))
+      (try
+        (session-loop in out {:opts opts})
+        (finally
+          (forget-connection! out))))
     (recur listener opts)))
 
 (defonce !socket (atom nil))
