@@ -4,4 +4,7 @@
         :requires ([clojure.test :as t]
                    [sci.nrepl.browser-server-test])
         :task (let [{:keys [fail error]} (t/run-tests 'sci.nrepl.browser-server-test)]
-                (System/exit (if (pos? (+ fail error)) 1 0)))}}}
+                (System/exit (if (pos? (+ fail error)) 1 0)))}
+  test:cljs {:doc "Run ClojureScript tests"
+             :task (do (clojure "-M:cljs-test -m cljs.main -d target/cljs-test -t node -o target/cljs-test/main.js -c sci.nrepl.server-test")
+                       (shell "node target/cljs-test/main.js"))}}}

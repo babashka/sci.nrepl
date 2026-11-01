@@ -12,10 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install babashka
+      - name: Install clojure tools
         uses: DeLaGuardo/setup-clojure@13.7.0
         with:
           bb: latest
+          cli: latest
 
       - name: Run tests
         run: bb test
+
+      - name: Run ClojureScript tests
+        run: bb test:cljs

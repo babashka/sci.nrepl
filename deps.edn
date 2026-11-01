@@ -4,6 +4,9 @@
 
  :aliases {:neil {:project {:name io.github.babashka/sci.nrepl
                             :version "0.0.2"}}
+           :cljs-test {:extra-paths ["test"]
+                       :extra-deps {org.babashka/sci {:mvn/version "0.15.59"}
+                                    org.clojure/clojurescript {:mvn/version "1.12.145"}}}
            :build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.5"
                                                          :git/sha "2a21b7a"}
                           slipset/deps-deploy {:mvn/version "0.2.2"}}
