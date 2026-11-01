@@ -1,0 +1,7 @@
+{:paths ["src" "test"]
+ :tasks
+ {test {:doc "Run tests"
+        :requires ([clojure.test :as t]
+                   [sci.nrepl.browser-server-test])
+        :task (let [{:keys [fail error]} (t/run-tests 'sci.nrepl.browser-server-test)]
+                (System/exit (if (pos? (+ fail error)) 1 0)))}}}

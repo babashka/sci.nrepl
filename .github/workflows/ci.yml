@@ -1,0 +1,21 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install babashka
+        uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          bb: latest
+
+      - name: Run tests
+        run: bb test

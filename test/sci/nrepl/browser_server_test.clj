@@ -1,4 +1,4 @@
-;; Tests reply routing in the relay. Run: bb -cp src:test -e "(require 'sci.nrepl.browser-server-test) (clojure.test/run-tests 'sci.nrepl.browser-server-test)"
+;; Tests reply routing in the relay. Run: bb test
 (ns sci.nrepl.browser-server-test
   (:require
    [bencode.core :as bencode]
@@ -56,6 +56,12 @@
           (Thread/sleep 1)
           (recur (inc n))))))
 
+(defn- await-page-message-count [n]
+  (loop [i 0]
+    (when (and (< (count @!page-inbox) n) (< i 1000))
+      (Thread/sleep 1)
+      (recur (inc i)))))
+
 (defn- pending? [id]
   (some (fn [[[_ pending-id]]] (= id pending-id)) @@#'server/!pending))
 
@@ -95,7 +101,7 @@
         b (connect)]
     (send! a {"op" "eval" "code" "1" "id" "1" "session" "session-a"})
     (send! b {"op" "eval" "code" "2" "id" "1" "session" "session-b"})
-    (Thread/sleep 50)
+    (await-page-message-count 2)
     (page-reply! {:id "1" :session "session-b"} {:value "2" :status ["done"]})
     (page-reply! {:id "1" :session "session-a"} {:value "1" :status ["done"]})
     (is (= "1" (get (recv a) "value")))
