@@ -7,7 +7,7 @@
 (defonce !last-ns
   (volatile! @sci/ns))
 
-(defn eval-string [s]
+(defn- eval-forms [s on-value]
   (sci/binding [sci/ns @!last-ns]
     (let [rdr (sci/reader s)]
       (loop [res nil]
@@ -16,7 +16,12 @@
             (do
               (vreset! !last-ns @sci/ns)
               res)
-            (recur (sci/eval-form (sci.ctx-store/get-ctx) form))))))))
+            (let [res (sci/eval-form (sci.ctx-store/get-ctx) form)]
+              (on-value res)
+              (recur res))))))))
+
+(defn eval-string [s]
+  (eval-forms s identity))
 
 (defn nrepl-websocket []
   (.-ws_nrepl js/window))
@@ -30,18 +35,30 @@
       (.send (nrepl-websocket) (str reply)))))
 
 (defn handle-nrepl-eval [{:keys [code] :as msg}]
-  (let [[kind val] (try [::success (eval-string code)]
-                        (catch :default e
-                          [::error (str e)]))]
-    (case kind
-      ::success
-      (do (nrepl-reply msg {:value (pr-str val)})
-          (nrepl-reply msg {:status ["done"]}))
-      ::error
-      (do
-        (nrepl-reply msg {:err (pr-str val)})
-        (nrepl-reply msg {:ex (pr-str val)
-                          :status ["error" "done"]})))))
+  (let [!promises (volatile! [])
+        done #(nrepl-reply msg {:status ["done"]})
+        fail (fn [err]
+               (nrepl-reply msg {:err err})
+               (nrepl-reply msg {:ex err
+                                 :status ["error" "done"]}))
+        on-value (fn [v]
+                   (if (instance? js/Promise v)
+                     (vswap! !promises conj
+                             (.then v #(nrepl-reply msg {:value (str "#<Promise " (pr-str %) ">")})))
+                     (nrepl-reply msg {:value (pr-str v)
+                                       :ns (str @sci/ns)})))]
+    (try
+      (sci/binding [sci/print-fn #(nrepl-reply msg {:out %})
+                    sci/print-err-fn #(nrepl-reply msg {:err %})
+                    sci/print-newline true]
+        (eval-forms code on-value))
+      (if-let [promises (seq @!promises)]
+        (-> (js/Promise.all (into-array promises))
+            (.then done)
+            (.catch #(fail (str %))))
+        (done))
+      (catch :default e
+        (fail (pr-str (str e)))))))
 
 (defn handle-nrepl-info [msg]
   (let [info (info (assoc msg :ctx (store/get-ctx)))]
