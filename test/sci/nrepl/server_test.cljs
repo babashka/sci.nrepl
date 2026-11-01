@@ -2,6 +2,7 @@
 (ns sci.nrepl.server-test
   (:require
    [cljs.test :as t :refer [async deftest is]]
+   [clojure.edn :as edn]
    [clojure.string :as str]
    [sci.core :as sci]
    [sci.ctx-store :as store]
@@ -18,9 +19,10 @@
       :id "1"
       :session "s"
       :send-fn (fn [reply]
-                 (swap! !replies conj reply)
-                 (when (some #{"done"} (:status reply))
-                   (on-done @!replies)))})))
+                 (let [reply (edn/read-string (str reply))]
+                   (swap! !replies conj reply)
+                   (when (some #{"done"} (:status reply))
+                     (on-done @!replies))))})))
 
 (defn- collect [k replies]
   (keep k replies))
@@ -35,6 +37,22 @@
                  (is (= "hi\n" (output :out replies)))
                  (is (= ["nil" "3" "7"] (collect :value replies)))
                  (is (= ["done"] (:status (peek replies))))
+                 (done)))))
+
+(deftest out-reply-from-println-is-readable-edn-test
+  (async done
+    (eval-code "(println \"hello world\")"
+               (fn [replies]
+                 (is (= "hello world\n" (output :out replies)))
+                 (is (every? #(= "1" (:id %)) replies))
+                 (done)))))
+
+(deftest out-reply-ignores-print-length-and-print-level-test
+  (async done
+    (eval-code "(binding [*print-length* 1 *print-level* 1] (println \"hi\"))"
+               (fn [replies]
+                 (is (= "hi\n" (output :out replies)))
+                 (is (every? #(= "s" (:session %)) replies))
                  (done)))))
 
 (deftest output-precedes-the-value-of-its-form-test

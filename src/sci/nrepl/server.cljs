@@ -30,9 +30,13 @@
   (let [ns (or ns (str @!last-ns))
         reply (-> (assoc payload :id id :session session :ns ns)
                   (dissoc :ctx))]
-    (if send-fn
-      (send-fn reply)
-      (.send (nrepl-websocket) (str reply)))))
+    (binding [*print-readably* true
+              *print-length* nil
+              *print-level* nil
+              *print-meta* false]
+      (if send-fn
+        (send-fn reply)
+        (.send (nrepl-websocket) (str reply))))))
 
 (defn handle-nrepl-eval [{:keys [code] :as msg}]
   (let [!promises (volatile! [])
