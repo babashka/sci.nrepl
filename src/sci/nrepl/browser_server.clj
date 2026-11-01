@@ -100,7 +100,7 @@
                            :eldo
                            :lookup
                            :complete
-                           :close :clone :load-file])
+                           :close :clone :load-file :classpath])
                          (repeat {}))
                   "aux" {"cwd" (System/getProperty "user.dir")}
                   :status ["done"]}]
@@ -127,6 +127,7 @@
           :describe (handle-describe ctx)
           :load-file (handle-load-file ctx)
           :complete (handle-complete ctx)
+          :classpath (send-response (assoc ctx :response {"classpath" [] "status" ["done"]}))
           :ls-sessions (send-response (assoc ctx :response {"sessions" (if session [session] []) "status" ["done"]}))
           (generically-handle-on-server (assoc ctx :op op))))
       (recur))))
