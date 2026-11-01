@@ -84,6 +84,8 @@
    :close handle-close})
 
 (defn handle-nrepl-message [msg]
-  (if-let [handler (ops (:op msg))]
-    (handler msg)
-    (nrepl-reply msg (merge msg {:status ["error" "done"] :err "unknown-op"}))))
+  (let [op (:op msg)]
+    (if-let [handler (ops op)]
+      (handler msg)
+      (nrepl-reply msg (cond-> {:status ["done" "unknown-op" "error"]}
+                         op (assoc :op (name op)))))))

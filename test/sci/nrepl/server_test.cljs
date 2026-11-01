@@ -123,6 +123,27 @@
 (deftest eval-string-returns-the-last-value-test
   (is (= 7 (server/eval-string "1 (+ 3 4)"))))
 
+(defn- message-replies [msg]
+  (let [!replies (atom [])]
+    (server/handle-nrepl-message
+     (assoc msg :id "1" :session "s" :send-fn #(swap! !replies conj %)))
+    @!replies))
+
+(deftest unknown-op-replies-with-unknown-op-status-test
+  (let [replies (message-replies {:op :frobnicate :code "(+ 1 2)"})
+        reply (first replies)]
+    (is (= 1 (count replies)))
+    (is (= ["done" "unknown-op" "error"] (:status reply)))
+    (is (= "frobnicate" (:op reply)))
+    (is (= "1" (:id reply)))
+    (is (not (contains? reply :code)))
+    (is (not (contains? reply :err)))))
+
+(deftest message-without-op-replies-with-unknown-op-status-test
+  (let [reply (first (message-replies {}))]
+    (is (= ["done" "unknown-op" "error"] (:status reply)))
+    (is (not (contains? reply :op)))))
+
 (defmethod t/report [::t/default :end-run-tests] [m]
   (when-not (t/successful? m)
     (set! (.-exitCode js/process) 1)))
