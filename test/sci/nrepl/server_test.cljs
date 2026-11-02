@@ -171,8 +171,50 @@
 (defn- message-replies [msg]
   (let [!replies (atom [])]
     (server/handle-nrepl-message
-     (assoc msg :id "1" :session "s" :send-fn #(swap! !replies conj %)))
+     (merge {:id "1" :session "s"} msg {:send-fn #(swap! !replies conj %)}))
     @!replies))
+
+(defn- eval-value [session code & {:as msg}]
+  (->> (message-replies (merge {:op :eval :code code :session session} msg))
+       (collect :value)
+       last))
+
+(deftest session-keeps-its-own-namespace-test
+  (eval-value "a" "(ns session-a)")
+  (is (= "\"session-a\"" (eval-value "a" "(str *ns*)")))
+  (is (= "\"user\"" (eval-value "b" "(str *ns*)"))))
+
+(deftest ns-applies-to-its-eval-only-test
+  (eval-value "a" "(ns explicit-a)")
+  (let [replies (message-replies {:op :eval :code "(str *ns*)" :session "c" :ns "explicit-a"})]
+    (is (= ["\"explicit-a\""] (collect :value replies)))
+    (is (every? #(= "explicit-a" (:ns %)) replies)))
+  (is (= "\"user\"" (eval-value "c" "(str *ns*)"))))
+
+(deftest ns-form-in-an-eval-with-ns-keeps-the-session-namespace-test
+  (eval-value "d" "(ns explicit-d)" :ns "user")
+  (is (= "\"user\"" (eval-value "d" "(str *ns*)"))))
+
+(deftest unknown-ns-replies-with-namespace-not-found-test
+  (let [replies (message-replies {:op :eval :code "(def not-evaluated 1)" :session "e" :ns "not.loaded"})
+        reply (first replies)]
+    (is (= 1 (count replies)))
+    (is (= ["error" "namespace-not-found" "done"] (:status reply)))
+    (is (= "not.loaded" (:ns reply))))
+  (is (= "nil" (eval-value "e" "(resolve 'not-evaluated)"))))
+
+(deftest session-keeps-the-namespace-of-a-failed-eval-test
+  (message-replies {:op :eval :code "(ns failed-eval) (throw (js/Error. \"boom\"))" :session "f"})
+  (is (= "\"failed-eval\"" (eval-value "f" "(str *ns*)"))))
+
+(deftest done-reply-carries-the-session-namespace-test
+  (eval-value "g" "(ns done-g)")
+  (is (= "done-g" (:ns (peek (message-replies {:op :eval :code "1" :session "g"}))))))
+
+(deftest close-forgets-the-session-namespace-test
+  (eval-value "h" "(ns closed-h)")
+  (message-replies {:op :close :session "h"})
+  (is (= "\"user\"" (eval-value "h" "(str *ns*)"))))
 
 (deftest unknown-op-replies-with-unknown-op-status-test
   (let [replies (message-replies {:op :frobnicate :code "(+ 1 2)"})
