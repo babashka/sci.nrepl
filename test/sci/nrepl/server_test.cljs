@@ -216,6 +216,25 @@
   (message-replies {:op :close :session "h"})
   (is (= "\"user\"" (eval-value "h" "(str *ns*)"))))
 
+(defn- candidates [msg]
+  (->> (message-replies (assoc msg :op :complete))
+       first
+       :completions
+       (map #(get % "candidate"))
+       set))
+
+(deftest complete-with-ns-offers-vars-of-that-ns-test
+  (eval-value "i" "(ns complete-i) (def in-complete-i 1)")
+  (is (contains? (candidates {:prefix "in-complete-i" :session "j" :ns "complete-i"})
+                 "in-complete-i")))
+
+(deftest complete-without-ns-offers-vars-of-the-session-namespace-test
+  (eval-value "k" "(ns complete-k) (def in-complete-k 1)")
+  (is (contains? (candidates {:prefix "in-complete-k" :session "k"})
+                 "in-complete-k"))
+  (is (not (contains? (candidates {:prefix "in-complete-k" :session "l"})
+                      "in-complete-k"))))
+
 (deftest unknown-op-replies-with-unknown-op-status-test
   (let [replies (message-replies {:op :frobnicate :code "(+ 1 2)"})
         reply (first replies)]

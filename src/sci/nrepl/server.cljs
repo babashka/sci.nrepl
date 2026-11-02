@@ -87,6 +87,11 @@
   (let [info (info (assoc msg :ctx (store/get-ctx)))]
     (nrepl-reply msg info)))
 
+(defn- handle-complete [{:keys [ns session] :as msg}]
+  (nrepl-reply msg (completions (assoc msg
+                                       :ctx (store/get-ctx)
+                                       :ns (or ns (str (session-ns session)))))))
+
 (declare ops)
 
 (defn handle-close [{:keys [session] :as request}]
@@ -99,8 +104,7 @@
    :info handle-nrepl-info
    :eldoc handle-nrepl-info
    :lookup handle-nrepl-info
-   :complete (fn [msg] (let [completions (completions (assoc msg :ctx (store/get-ctx)))]
-                         (nrepl-reply msg completions)))
+   :complete handle-complete
    :close handle-close})
 
 (defn handle-nrepl-message [msg]
