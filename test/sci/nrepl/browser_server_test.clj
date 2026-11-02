@@ -1,12 +1,14 @@
 ;; Tests reply routing in the relay. Run: bb test
 (ns sci.nrepl.browser-server-test
   (:require
+   [babashka.http-client.websocket :as ws]
    [bencode.core :as bencode]
    [clojure.test :refer [deftest is testing use-fixtures]]
+   [org.httpkit.server :as httpkit]
    [sci.nrepl.browser-server :as server])
   (:import
    [java.io PushbackInputStream]
-   [java.net Socket SocketTimeoutException]))
+   [java.net ServerSocket Socket SocketTimeoutException]))
 
 (def ^:private !page-inbox (atom []))
 
@@ -144,6 +146,44 @@
       (is (every? #(contains? ops %) ["eldoc" "describe" "ls-sessions"]))
       (is (not (contains? ops "eldo"))))
     (.close ^Socket (:socket a))))
+
+(defn- no-page-replies [id]
+  (let [a (connect)]
+    (send! a {"op" "eval" "code" "(+ 1 2)" "id" id})
+    (let [replies [(recv a) (recv a)]]
+      (.close ^Socket (:socket a))
+      replies)))
+
+(defn- restart-without-send-fn! []
+  (server/stop-nrepl-server!)
+  (reset! server/nrepl-channel nil)
+  (server/start-nrepl-server! {:port 0 :quiet true})
+  (while (or (nil? @server/!socket) (zero? (server-port)))
+    (Thread/sleep 1)))
+
+(deftest eval-before-a-page-connects-replies-with-err-and-done-test
+  (restart-without-send-fn!)
+  (let [[err done] (no-page-replies "no-page")]
+    (is (= "No page is connected.\n" (get err "err")))
+    (is (= ["done" "error"] (get done "status"))))
+  (is (not (pending? "no-page"))))
+
+(deftest eval-after-the-page-closes-replies-with-err-and-done-test
+  (restart-without-send-fn!)
+  (let [port (with-open [s (ServerSocket. 0)] (.getLocalPort s))]
+    (server/start-websocket-server! {:port port})
+    (try
+      (let [page (ws/websocket {:uri (str "ws://localhost:" port "/_nrepl")})]
+        (while (nil? @server/nrepl-channel)
+          (Thread/sleep 1))
+        (ws/close! page)
+        (while (httpkit/send! @server/nrepl-channel "")
+          (Thread/sleep 1)))
+      (let [[err done] (no-page-replies "page-closed")]
+        (is (= "No page is connected.\n" (get err "err")))
+        (is (= ["done" "error"] (get done "status"))))
+      (finally
+        (server/halt!)))))
 
 (deftest closed-connection-drops-pending-requests-test
   (let [a (connect)]
