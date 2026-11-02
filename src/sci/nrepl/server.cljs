@@ -6,7 +6,7 @@
 
 (defonce ^:private default-ns @sci/ns)
 
-(defonce !session-ns
+(defonce ^:private !session-ns
   (volatile! {}))
 
 (defn- session-ns [session]
