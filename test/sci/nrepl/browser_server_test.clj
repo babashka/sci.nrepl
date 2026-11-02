@@ -191,6 +191,17 @@
     (is (= "foo" (:ns (await-page-message "with-ns"))))
     (.close ^Socket (:socket a))))
 
+(deftest load-file-forwards-the-file-as-code-with-load-file-test
+  (let [a (connect)
+        file "(System/getProperty \"user.dir\")"]
+    (send! a {"op" "load-file" "file" file "id" "load" "ns" "foo"})
+    (let [msg (await-page-message "load")]
+      (is (= :eval (:op msg)))
+      (is (= file (:code msg)))
+      (is (= "foo" (:ns msg)))
+      (is (true? (:load-file msg))))
+    (.close ^Socket (:socket a))))
+
 (defn- new-session! [conn id]
   (send! conn {"op" "clone" "id" id})
   (get (recv conn) "new-session"))
