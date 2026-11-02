@@ -83,14 +83,16 @@
       (nrepl-reply msg {:status ["error" "namespace-not-found" "done"]})
       (eval-code (assoc msg :explicit-ns explicit-ns)))))
 
-(defn handle-nrepl-info [msg]
-  (let [info (info (assoc msg :ctx (store/get-ctx)))]
-    (nrepl-reply msg info)))
+(defn- with-ctx-and-ns [{:keys [ns session] :as msg}]
+  (assoc msg
+         :ctx (store/get-ctx)
+         :ns (or ns (str (session-ns session)))))
 
-(defn- handle-complete [{:keys [ns session] :as msg}]
-  (nrepl-reply msg (completions (assoc msg
-                                       :ctx (store/get-ctx)
-                                       :ns (or ns (str (session-ns session)))))))
+(defn handle-nrepl-info [msg]
+  (nrepl-reply msg (info (with-ctx-and-ns msg))))
+
+(defn- handle-complete [msg]
+  (nrepl-reply msg (completions (with-ctx-and-ns msg))))
 
 (declare ops)
 
