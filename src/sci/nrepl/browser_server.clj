@@ -63,11 +63,18 @@
   (when-let [chan @nrepl-channel]
     (httpkit/send! chan (str msg))))
 
+(defn- reply-error [ctx message]
+  (send-response (assoc ctx :response {:err message}))
+  (send-response (assoc ctx :response {:status ["done" "error"]})))
+
+(defn- fail-pending! []
+  (doseq [[[session id] out] @!pending]
+    (reply-error {:out out :id id :session session} "The page disconnected.\n")))
+
 (defn- forward! [{:as ctx :keys [out id session send-fn] :or {send-fn websocket-send!}} msg]
   (swap! !pending assoc [session id] out)
   (when-not (send-fn (assoc msg :id id :session session))
-    (send-response (assoc ctx :response {:err "No page is connected.\n"}))
-    (send-response (assoc ctx :response {:status ["done" "error"]}))))
+    (reply-error ctx "No page is connected.\n")))
 
 (defn- handle-eval [{:as ctx :keys [msg]}]
   (let [code (get msg :code)]
@@ -174,7 +181,10 @@
   (httpkit/as-channel req
                       {:on-open (fn [ch]
                                   (reset! nrepl-channel ch))
-                       :on-close (fn [_ch _reason] (prn :close))
+                       :on-close (fn [ch _reason]
+                                   (prn :close)
+                                   (when (identical? ch @nrepl-channel)
+                                     (fail-pending!)))
                        :on-receive
                        (fn [_ch message]
                          (prn :msg message)

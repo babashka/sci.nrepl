@@ -185,6 +185,54 @@
       (finally
         (server/halt!)))))
 
+(deftest page-closing-replies-to-in-flight-requests-test
+  (restart-without-send-fn!)
+  (let [port (with-open [s (ServerSocket. 0)] (.getLocalPort s))]
+    (server/start-websocket-server! {:port port})
+    (try
+      (let [page (ws/websocket {:uri (str "ws://localhost:" port "/_nrepl")})
+            a (connect)]
+        (while (nil? @server/nrepl-channel)
+          (Thread/sleep 1))
+        (send! a {"op" "eval" "code" "1" "id" "in-flight"})
+        (while (not (pending? "in-flight"))
+          (Thread/sleep 1))
+        (ws/close! page)
+        (let [err (recv a)
+              done (recv a)]
+          (is (= "in-flight" (get err "id")))
+          (is (= "The page disconnected.\n" (get err "err")))
+          (is (= ["done" "error"] (get done "status"))))
+        (is (not (pending? "in-flight")))
+        (.close ^Socket (:socket a)))
+      (finally
+        (server/halt!)))))
+
+(deftest replaced-page-closing-keeps-requests-of-the-new-page-test
+  (restart-without-send-fn!)
+  (let [port (with-open [s (ServerSocket. 0)] (.getLocalPort s))]
+    (server/start-websocket-server! {:port port})
+    (try
+      (let [old-page (ws/websocket {:uri (str "ws://localhost:" port "/_nrepl")})
+            _ (while (nil? @server/nrepl-channel)
+                (Thread/sleep 1))
+            old-channel @server/nrepl-channel
+            _new-page (ws/websocket {:uri (str "ws://localhost:" port "/_nrepl")})
+            a (connect)]
+        (while (identical? old-channel @server/nrepl-channel)
+          (Thread/sleep 1))
+        (send! a {"op" "eval" "code" "1" "id" "on-new-page"})
+        (while (not (pending? "on-new-page"))
+          (Thread/sleep 1))
+        (ws/close! old-page)
+        (while (httpkit/send! old-channel "")
+          (Thread/sleep 1))
+        (is (= ::timeout (recv a)))
+        (is (pending? "on-new-page"))
+        (.close ^Socket (:socket a)))
+      (finally
+        (server/halt!)))))
+
 (deftest eval-forwards-ns-to-the-page-test
   (let [a (connect)]
     (send! a {"op" "eval" "code" "1" "id" "with-ns" "ns" "foo"})
