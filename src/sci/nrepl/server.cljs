@@ -38,13 +38,19 @@
         (send-fn reply)
         (.send (nrepl-websocket) (str reply))))))
 
+(defn- error-name [e]
+  (cond (instance? ExceptionInfo e) "ExceptionInfo"
+        (instance? js/Error e) (.-name e)
+        :else "Error"))
+
 (defn handle-nrepl-eval [{:keys [code] :as msg}]
   (let [!promises (volatile! [])
         done #(nrepl-reply msg {:status ["done"]})
-        fail (fn [err]
-               (nrepl-reply msg {:err err})
-               (nrepl-reply msg {:ex err
-                                 :status ["error" "done"]}))
+        fail (fn [e]
+               (nrepl-reply msg {:err (str (or (ex-message e) (str e)) "\n")})
+               (nrepl-reply msg {:ex (error-name e)
+                                 :status ["eval-error"]})
+               (done))
         on-value (fn [v]
                    (if (instance? js/Promise v)
                      (vswap! !promises conj
@@ -59,10 +65,10 @@
       (if-let [promises (seq @!promises)]
         (-> (js/Promise.all (into-array promises))
             (.then done)
-            (.catch #(fail (str %))))
+            (.catch fail))
         (done))
       (catch :default e
-        (fail (pr-str (str e)))))))
+        (fail (or (ex-cause e) e))))))
 
 (defn handle-nrepl-info [msg]
   (let [info (info (assoc msg :ctx (store/get-ctx)))]

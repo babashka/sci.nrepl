@@ -87,13 +87,59 @@
                         (map :ns (filter :value replies))))
                  (done)))))
 
+(defn- is-eval-error [replies err ex]
+  (is (= err (output :err replies)))
+  (is (= [ex] (collect :ex replies)))
+  (is (= [["eval-error"] ["done"]] (collect :status replies))))
+
 (deftest throwing-form-ends-eval-test
   (async done
     (eval-code "1 (throw (js/Error. \"boom\")) 2"
                (fn [replies]
                  (is (= ["1"] (collect :value replies)))
-                 (is (str/includes? (output :err replies) "boom"))
-                 (is (= ["error" "done"] (:status (peek replies))))
+                 (is-eval-error replies "boom\n" "Error")
+                 (done)))))
+
+(deftest ex-info-replies-with-its-message-and-ExceptionInfo-test
+  (async done
+    (eval-code "(throw (ex-info \"boom\" {}))"
+               (fn [replies]
+                 (is-eval-error replies "boom\n" "ExceptionInfo")
+                 (done)))))
+
+(deftest ex-info-with-a-cause-replies-with-its-own-message-test
+  (async done
+    (eval-code "(throw (ex-info \"outer\" {} (js/TypeError. \"inner\")))"
+               (fn [replies]
+                 (is-eval-error replies "outer\n" "ExceptionInfo")
+                 (done)))))
+
+(deftest type-error-replies-with-TypeError-test
+  (async done
+    (eval-code "(throw (js/TypeError. \"bad\"))"
+               (fn [replies]
+                 (is-eval-error replies "bad\n" "TypeError")
+                 (done)))))
+
+(deftest thrown-string-replies-with-the-string-test
+  (async done
+    (eval-code "(throw \"boom\")"
+               (fn [replies]
+                 (is-eval-error replies "boom\n" "Error")
+                 (done)))))
+
+(deftest unresolved-symbol-replies-with-its-message-test
+  (async done
+    (eval-code "(foo)"
+               (fn [replies]
+                 (is-eval-error replies "Unable to resolve symbol: foo\n" "ExceptionInfo")
+                 (done)))))
+
+(deftest parse-error-replies-with-its-message-test
+  (async done
+    (eval-code "(+ 1"
+               (fn [replies]
+                 (is-eval-error replies "EOF while reading, expected ) to match ( at [1,1]\n" "ExceptionInfo")
                  (done)))))
 
 (deftest resolved-promise-replies-before-done-test
@@ -104,12 +150,11 @@
                  (is (= ["done"] (:status (peek replies))))
                  (done)))))
 
-(deftest rejected-promise-replies-with-error-test
+(deftest rejected-promise-replies-with-eval-error-test
   (async done
-    (eval-code "(js/Promise.reject (js/Error. \"boom\"))"
+    (eval-code "(js/Promise.reject (js/TypeError. \"boom\"))"
                (fn [replies]
-                 (is (str/includes? (output :err replies) "boom"))
-                 (is (= ["error" "done"] (:status (peek replies))))
+                 (is-eval-error replies "boom\n" "TypeError")
                  (done)))))
 
 (deftest print-fn-is-restored-after-eval-test
