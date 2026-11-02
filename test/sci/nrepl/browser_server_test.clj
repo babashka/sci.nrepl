@@ -247,6 +247,31 @@
   (send! conn {"op" "ls-sessions" "id" "ls"})
   (set (get (recv conn) "sessions")))
 
+(deftest clone-of-a-session-tells-the-page-test
+  (let [a (connect)]
+    (send! a {"op" "clone" "id" "clone-child" "session" "parent"})
+    (let [new-session (get (recv a) "new-session")
+          msg (await-page-message "clone-child")]
+      (is (= :clone (:op msg)))
+      (is (= "parent" (:session msg)))
+      (is (= new-session (:new-session msg)))
+      (is (not (pending? "clone-child"))))
+    (.close ^Socket (:socket a))))
+
+(deftest clone-without-a-session-skips-the-page-test
+  (let [a (connect)]
+    (send! a {"op" "clone" "id" "clone-root"})
+    (is (string? (get (recv a) "new-session")))
+    (is (empty? (filter #(= "clone-root" (:id %)) @!page-inbox)))
+    (.close ^Socket (:socket a))))
+
+(deftest clone-without-a-page-replies-with-a-new-session-test
+  (restart-without-send-fn!)
+  (let [a (connect)]
+    (send! a {"op" "clone" "id" "clone-no-page" "session" "parent"})
+    (is (string? (get (recv a) "new-session")))
+    (.close ^Socket (:socket a))))
+
 (deftest ls-sessions-lists-every-session-until-it-closes-test
   (let [a (connect)
         b (connect)

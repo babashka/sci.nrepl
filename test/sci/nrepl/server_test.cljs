@@ -251,6 +251,17 @@
     (is (= ["done" "no-eldoc"]
            (:status (first (message-replies {:op op :sym "in-info-o" :session "p"})))))))
 
+(deftest clone-starts-in-the-namespace-of-its-parent-test
+  (eval-value "q" "(ns clone-q)")
+  (is (empty? (message-replies {:op :clone :session "q" :new-session "r"})))
+  (is (= "\"clone-q\"" (eval-value "r" "(str *ns*)"))))
+
+(deftest clone-keeps-its-namespace-apart-from-its-parent-test
+  (eval-value "s" "(ns clone-s)")
+  (message-replies {:op :clone :session "s" :new-session "t"})
+  (eval-value "s" "(ns clone-s-later)")
+  (is (= "\"clone-s\"" (eval-value "t" "(str *ns*)"))))
+
 (deftest unknown-op-replies-with-unknown-op-status-test
   (let [replies (message-replies {:op :frobnicate :code "(+ 1 2)"})
         reply (first replies)]
