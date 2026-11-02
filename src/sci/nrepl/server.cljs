@@ -4,30 +4,37 @@
             [sci.nrepl.completions :refer [completions]]
             [sci.nrepl.info :refer [info]]))
 
-(defonce !last-ns
-  (volatile! @sci/ns))
+(defonce ^:private default-ns @sci/ns)
 
-(defn- eval-forms [s on-value]
-  (sci/binding [sci/ns @!last-ns]
+(defonce ^:private !session-ns
+  (volatile! {}))
+
+(defn- session-ns [session]
+  (get @!session-ns session default-ns))
+
+(defn- eval-forms [{:keys [session explicit-ns]} s on-value]
+  (sci/binding [sci/ns (or explicit-ns (session-ns session))]
     (let [rdr (sci/reader s)]
-      (loop [res nil]
-        (let [form (sci/parse-next (sci.ctx-store/get-ctx) rdr)]
-          (if (= :sci.core/eof form)
-            (do
-              (vreset! !last-ns @sci/ns)
-              res)
-            (let [res (sci/eval-form (sci.ctx-store/get-ctx) form)]
-              (on-value res)
-              (recur res))))))))
+      (try
+        (loop [res nil]
+          (let [form (sci/parse-next (sci.ctx-store/get-ctx) rdr)]
+            (if (= :sci.core/eof form)
+              res
+              (let [res (sci/eval-form (sci.ctx-store/get-ctx) form)]
+                (on-value res)
+                (recur res)))))
+        (finally
+          (when-not explicit-ns
+            (vswap! !session-ns assoc session @sci/ns)))))))
 
 (defn eval-string [s]
-  (eval-forms s identity))
+  (eval-forms nil s identity))
 
 (defn nrepl-websocket []
   (.-ws_nrepl js/window))
 
-(defn nrepl-reply [{:keys [id session send-fn]} {:keys [ns] :as payload}]
-  (let [ns (or ns (str @!last-ns))
+(defn nrepl-reply [{:keys [id session send-fn] msg-ns :ns} {:keys [ns] :as payload}]
+  (let [ns (or ns msg-ns (str (session-ns session)))
         reply (-> (assoc payload :id id :session session :ns ns)
                   (dissoc :ctx))]
     (binding [*print-readably* true
@@ -43,7 +50,7 @@
         (instance? js/Error e) (.-name e)
         :else "Error"))
 
-(defn handle-nrepl-eval [{:keys [code] :as msg}]
+(defn- eval-code [{:keys [code] :as msg}]
   (let [!promises (volatile! [])
         done #(nrepl-reply msg {:status ["done"]})
         fail (fn [e]
@@ -61,7 +68,7 @@
       (sci/binding [sci/print-fn #(nrepl-reply msg {:out %})
                     sci/print-err-fn #(nrepl-reply msg {:err %})
                     sci/print-newline true]
-        (eval-forms code on-value))
+        (eval-forms msg code on-value))
       (if-let [promises (seq @!promises)]
         (-> (js/Promise.all (into-array promises))
             (.then done)
@@ -70,13 +77,20 @@
       (catch :default e
         (fail (or (ex-cause e) e))))))
 
+(defn handle-nrepl-eval [{:keys [ns] :as msg}]
+  (let [explicit-ns (some->> ns symbol (sci/find-ns (store/get-ctx)))]
+    (if (and ns (nil? explicit-ns))
+      (nrepl-reply msg {:status ["error" "namespace-not-found" "done"]})
+      (eval-code (assoc msg :explicit-ns explicit-ns)))))
+
 (defn handle-nrepl-info [msg]
   (let [info (info (assoc msg :ctx (store/get-ctx)))]
     (nrepl-reply msg info)))
 
 (declare ops)
 
-(defn handle-close [request]
+(defn handle-close [{:keys [session] :as request}]
+  (vswap! !session-ns dissoc session)
   (nrepl-reply request {:status ["done" "session-closed"]}))
 
 (def ops

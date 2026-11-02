@@ -42,8 +42,12 @@
       (bencode/write-bencode out response)
       (.flush ^java.io.OutputStream out))))
 
+(defonce ^:private !sessions
+  (atom #{}))
+
 (defn- handle-clone [ctx]
   (let [id (str (java.util.UUID/randomUUID))]
+    (swap! !sessions conj id)
     (send-response (assoc ctx
                           :response {"new-session" id "status" ["done"]}))))
 
@@ -73,7 +77,8 @@
         (send-response (assoc ctx :response {"value" "nil"}))
         (send-response (assoc ctx :response {"status" ["done"]})))
       (forward! ctx {:op :eval
-                     :code code}))))
+                     :code code
+                     :ns (get msg :ns)}))))
 
 (defn- handle-load-file [ctx]
   (let [msg (get ctx :msg)
@@ -131,7 +136,9 @@
           :load-file (handle-load-file ctx)
           :complete (handle-complete ctx)
           :classpath (send-response (assoc ctx :response {"classpath" [] "status" ["done"]}))
-          :ls-sessions (send-response (assoc ctx :response {"sessions" (if session [session] []) "status" ["done"]}))
+          :ls-sessions (send-response (assoc ctx :response {"sessions" (vec @!sessions) "status" ["done"]}))
+          :close (do (swap! !sessions disj session)
+                     (generically-handle-on-server (assoc ctx :op op)))
           (generically-handle-on-server (assoc ctx :op op))))
       (recur))))
 

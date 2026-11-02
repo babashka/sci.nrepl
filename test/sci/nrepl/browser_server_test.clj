@@ -185,6 +185,33 @@
       (finally
         (server/halt!)))))
 
+(deftest eval-forwards-ns-to-the-page-test
+  (let [a (connect)]
+    (send! a {"op" "eval" "code" "1" "id" "with-ns" "ns" "foo"})
+    (is (= "foo" (:ns (await-page-message "with-ns"))))
+    (.close ^Socket (:socket a))))
+
+(defn- new-session! [conn id]
+  (send! conn {"op" "clone" "id" id})
+  (get (recv conn) "new-session"))
+
+(defn- sessions [conn]
+  (send! conn {"op" "ls-sessions" "id" "ls"})
+  (set (get (recv conn) "sessions")))
+
+(deftest ls-sessions-lists-every-session-until-it-closes-test
+  (let [a (connect)
+        b (connect)
+        session-a (new-session! a "clone-a")
+        session-b (new-session! b "clone-b")]
+    (is (every? (sessions a) [session-a session-b]))
+    (send! b {"op" "close" "id" "close-b" "session" session-b})
+    (await-page-message "close-b")
+    (is (not (contains? (sessions a) session-b)))
+    (is (contains? (sessions a) session-a))
+    (.close ^Socket (:socket a))
+    (.close ^Socket (:socket b))))
+
 (deftest closed-connection-drops-pending-requests-test
   (let [a (connect)]
     (send! a {"op" "eval" "code" "1" "id" "abandoned"})
