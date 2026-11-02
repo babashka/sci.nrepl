@@ -235,6 +235,22 @@
   (is (not (contains? (candidates {:prefix "in-complete-k" :session "l"})
                       "in-complete-k"))))
 
+(defn- found-name [msg]
+  (some-> (message-replies msg) first :name str))
+
+(deftest info-ops-with-ns-find-vars-of-that-ns-test
+  (eval-value "m" "(ns info-m) (def in-info-m 1)")
+  (doseq [op [:info :eldoc :lookup]]
+    (is (= "in-info-m" (found-name {:op op :sym "in-info-m" :session "n" :ns "info-m"})))))
+
+(deftest info-ops-without-ns-find-vars-of-the-session-namespace-test
+  (eval-value "o" "(ns info-o) (def in-info-o 1)")
+  (doseq [op [:info :eldoc :lookup]]
+    (is (= "in-info-o" (found-name {:op op :sym "in-info-o" :session "o"})))
+    (is (= "inc" (found-name {:op op :sym "inc" :session "o"})))
+    (is (= ["done" "no-eldoc"]
+           (:status (first (message-replies {:op op :sym "in-info-o" :session "p"})))))))
+
 (deftest unknown-op-replies-with-unknown-op-status-test
   (let [replies (message-replies {:op :frobnicate :code "(+ 1 2)"})
         reply (first replies)]
