@@ -96,6 +96,9 @@
 
 (declare ops)
 
+(defn- handle-clone [{:keys [session new-session]}]
+  (vswap! !session-ns assoc new-session (session-ns session)))
+
 (defn handle-close [{:keys [session] :as request}]
   (vswap! !session-ns dissoc session)
   (nrepl-reply request {:status ["done" "session-closed"]}))
@@ -107,6 +110,7 @@
    :eldoc handle-nrepl-info
    :lookup handle-nrepl-info
    :complete handle-complete
+   :clone handle-clone
    :close handle-close})
 
 (defn handle-nrepl-message [msg]

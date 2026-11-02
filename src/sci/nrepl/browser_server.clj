@@ -45,12 +45,6 @@
 (defonce ^:private !sessions
   (atom #{}))
 
-(defn- handle-clone [ctx]
-  (let [id (str (java.util.UUID/randomUUID))]
-    (swap! !sessions conj id)
-    (send-response (assoc ctx
-                          :response {"new-session" id "status" ["done"]}))))
-
 (defonce nrepl-channel (atom nil))
 
 (defn- response-handler [message]
@@ -62,6 +56,14 @@
 (defn- websocket-send! [msg]
   (when-let [chan @nrepl-channel]
     (httpkit/send! chan (str msg))))
+
+(defn- handle-clone [{:as ctx :keys [id session send-fn] :or {send-fn websocket-send!}}]
+  (let [new-session (str (java.util.UUID/randomUUID))]
+    (swap! !sessions conj new-session)
+    (when session
+      (send-fn {:op :clone :id id :session session :new-session new-session}))
+    (send-response (assoc ctx
+                          :response {"new-session" new-session "status" ["done"]}))))
 
 (defn- reply-error [ctx message]
   (send-response (assoc ctx :response {:err message}))
