@@ -97,10 +97,11 @@
                           name
                           [:eval
                            :info
-                           :eldo
+                           :eldoc
                            :lookup
                            :complete
-                           :close :clone :load-file :classpath])
+                           :close :clone :load-file :classpath
+                           :describe :ls-sessions])
                          (repeat {}))
                   "aux" {"cwd" (System/getProperty "user.dir")}
                   :status ["done"]}]
