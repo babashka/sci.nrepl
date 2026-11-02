@@ -137,6 +137,14 @@
     (is (contains? (get (recv a) "ops") "classpath"))
     (.close ^Socket (:socket a))))
 
+(deftest describe-lists-eldoc-describe-and-ls-sessions-test
+  (let [a (connect)]
+    (send! a {"op" "describe" "id" "describe-request"})
+    (let [ops (get (recv a) "ops")]
+      (is (every? #(contains? ops %) ["eldoc" "describe" "ls-sessions"]))
+      (is (not (contains? ops "eldo"))))
+    (.close ^Socket (:socket a))))
+
 (deftest closed-connection-drops-pending-requests-test
   (let [a (connect)]
     (send! a {"op" "eval" "code" "1" "id" "abandoned"})
