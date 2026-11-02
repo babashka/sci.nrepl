@@ -59,9 +59,11 @@
   (when-let [chan @nrepl-channel]
     (httpkit/send! chan (str msg))))
 
-(defn- forward! [{:keys [out id session send-fn] :or {send-fn websocket-send!}} msg]
+(defn- forward! [{:as ctx :keys [out id session send-fn] :or {send-fn websocket-send!}} msg]
   (swap! !pending assoc [session id] out)
-  (send-fn (assoc msg :id id :session session)))
+  (when-not (send-fn (assoc msg :id id :session session))
+    (send-response (assoc ctx :response {:err "No page is connected.\n"}))
+    (send-response (assoc ctx :response {:status ["done" "error"]}))))
 
 (defn- handle-eval [{:as ctx :keys [msg]}]
   (let [code (get msg :code)]
