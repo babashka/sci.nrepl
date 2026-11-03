@@ -12,7 +12,7 @@
 (defn- session-ns [session]
   (get @!session-ns session default-ns))
 
-(defn- eval-forms [{:keys [session explicit-ns]} s on-value]
+(defn- eval-forms [{:keys [session explicit-ns load-file]} s on-value]
   (sci/binding [sci/ns (or explicit-ns (session-ns session))]
     (let [rdr (sci/reader s)]
       (try
@@ -24,7 +24,7 @@
                 (on-value res)
                 (recur res)))))
         (finally
-          (when-not explicit-ns
+          (when-not (or explicit-ns load-file)
             (vswap! !session-ns assoc session @sci/ns)))))))
 
 (defn eval-string [s]

@@ -89,11 +89,11 @@
                      :code code
                      :ns (get msg :ns)}))))
 
-(defn- handle-load-file [ctx]
-  (let [msg (get ctx :msg)
-        code (get msg :file)
-        msg (assoc msg :code code)]
-    (handle-eval (assoc ctx :msg msg))))
+(defn- handle-load-file [{:as ctx :keys [msg]}]
+  (forward! ctx {:op :eval
+                 :code (get msg :file)
+                 :ns (get msg :ns)
+                 :load-file true}))
 
 (defn- handle-complete [{:as ctx :keys [msg]}]
   (forward! ctx {:op :complete

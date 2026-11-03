@@ -216,6 +216,15 @@
   (message-replies {:op :close :session "h"})
   (is (= "\"user\"" (eval-value "h" "(str *ns*)"))))
 
+(deftest load-file-evaluates-in-the-session-namespace-test
+  (eval-value "m" "(ns load-file-m)")
+  (is (= ["\"load-file-m\""]
+         (collect :value (message-replies {:op :eval :load-file true :code "(str *ns*)" :session "m"})))))
+
+(deftest ns-form-in-a-load-file-keeps-the-session-namespace-test
+  (message-replies {:op :eval :load-file true :code "(ns load-file-n)" :session "n"})
+  (is (= "\"user\"" (eval-value "n" "(str *ns*)"))))
+
 (defn- candidates [msg]
   (->> (message-replies (assoc msg :op :complete))
        first
